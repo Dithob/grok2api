@@ -318,8 +318,9 @@ async def _import_default_tokens(repo: "AccountRepository") -> None:
 
     Priority (first non-empty source wins):
       1. ``app/default_tokens.txt``        — local dev (gitignored)
-      2. ``GROK_DEFAULT_TOKENS`` env var   — inline base64 or plain tokens
-      3. ``GROK_TOKEN_URL`` env var        — fetch from a URL (bypasses env var size limits)
+      2. ``GROK_TOKEN_FILE`` env var       — path to a secret file (Render Secret Files)
+      3. ``GROK_DEFAULT_TOKENS`` env var   — inline base64 or plain tokens
+      4. ``GROK_TOKEN_URL`` env var        — fetch from a URL (bypasses env var size limits)
 
     Skips if the account repository already has data.  All errors from
     URL fetching are logged but do NOT block startup.
@@ -336,13 +337,21 @@ async def _import_default_tokens(repo: "AccountRepository") -> None:
     if tokens:
         source = "default_tokens.txt"
 
-    # Source 2: inline env var.
+    # Source 2: secret file path (Render Secret Files).
+    if not tokens:
+        token_file = os.getenv("GROK_TOKEN_FILE", "").strip()
+        if token_file:
+            tokens = await _read_tokens_from_file(Path(token_file))
+            if tokens:
+                source = f"GROK_TOKEN_FILE ({token_file})"
+
+    # Source 3: inline env var.
     if not tokens:
         tokens = _read_tokens_from_env()
         if tokens:
             source = "GROK_DEFAULT_TOKENS"
 
-    # Source 3: URL fetch.
+    # Source 4: URL fetch.
     if not tokens:
         token_url = os.getenv("GROK_TOKEN_URL", "").strip()
         if token_url and token_url.startswith(("http://", "https://")):
