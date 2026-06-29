@@ -394,11 +394,7 @@ curl http://localhost:8000/v1/chat/completions \
 
 ---
 
-## Star History
-
-<a href="https://github.com/Dithob">
-  <img src="https://avatars.githubusercontent.com/u/73398810?v=4" width="48" style="border-radius:50%" alt="Dithob" />
-</a>
+## <a href="https://github.com/Dithob"><img src="https://avatars.githubusercontent.com/u/73398810?v=4" width="28" style="border-radius:50%;vertical-align:middle" alt="Dithob" /></a> Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=Dithob/grok2api&type=Date)](https://star-history.com/#Dithob/grok2api&Date)
 

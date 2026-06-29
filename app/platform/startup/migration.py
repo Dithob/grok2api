@@ -22,6 +22,8 @@ After a successful migration the SQLite file is renamed to
 from __future__ import annotations
 
 import asyncio
+import base64
+import os
 import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -40,7 +42,8 @@ _DEFAULTS_PATH = _BASE_DIR / "config.defaults.toml"
 _DEFAULT_TOKENS_PATH = _BASE_DIR / "app" / "default_tokens.txt"
 _USER_CFG_PATH = data_path("config.toml")
 _LOCAL_DB_PATH = data_path("accounts.db")
-_BATCH         = 500  # accounts per upsert/patch batch
+_BATCH             = 500  # accounts per upsert/patch batch
+_DEFAULT_TOKEN_POOL = os.getenv("GROK_DEFAULT_TOKEN_POOL", "basic")
 
 
 # ---------------------------------------------------------------------------
@@ -215,7 +218,7 @@ def _record_to_patch(r) -> "AccountPatch":
 
 
 # ---------------------------------------------------------------------------
-# Default token import — first-boot seed from app/default_tokens.txt
+# Default token import — first-boot seed from multiple sources
 # ---------------------------------------------------------------------------
 
 
@@ -227,35 +230,143 @@ def _sanitize_token(raw: str) -> str:
     return tok.encode("ascii", errors="ignore").decode("ascii").strip()
 
 
-async def _import_default_tokens(repo: "AccountRepository") -> None:
-    """Import tokens from ``app/default_tokens.txt`` when the repo is empty."""
-    if not _DEFAULT_TOKENS_PATH.exists():
-        return
-
-    snapshot = await repo.runtime_snapshot()
-    if snapshot.revision > 0 or snapshot.items:
-        return  # repo already has data, skip
-
-    raw = await asyncio.to_thread(_DEFAULT_TOKENS_PATH.read_text, "utf-8")
+def _parse_token_lines(raw: str) -> list[str]:
+    """Parse newline-separated token strings, stripping blanks and comments."""
     tokens = []
     for line in raw.splitlines():
         tok = _sanitize_token(line)
         if tok:
             tokens.append(tok)
+    return tokens
 
+
+async def _read_tokens_from_file(path: Path) -> list[str]:
+    """Read and sanitize tokens from a newline-separated file."""
+    if not path.exists():
+        return []
+    raw = await asyncio.to_thread(path.read_text, "utf-8")
+    return _parse_token_lines(raw)
+
+
+def _read_tokens_from_env() -> list[str]:
+    """Read tokens from GROK_DEFAULT_TOKENS env var.
+
+    Supports two formats:
+      - base64:   if the value looks like base64, decode it first
+      - plain:    newline-separated tokens directly
+
+    Tries base64 decode first; if that fails or the result looks the
+    same as the input, falls through to plain-text parsing.
+    """
+    raw = os.getenv("GROK_DEFAULT_TOKENS", "").strip()
+    if not raw:
+        return []
+
+    try:
+        decoded = base64.b64decode(raw, validate=True).decode("ascii").strip()
+        if decoded and decoded != raw:
+            return _parse_token_lines(decoded)
+    except Exception:
+        pass
+
+    return _parse_token_lines(raw)
+
+
+async def _fetch_tokens_from_url(url: str) -> list[str]:
+    """Fetch token list from a URL.  Expects newline-separated tokens.
+
+    Uses aiohttp (already a project dependency).  Timeout: 30 s total.
+    """
+    import aiohttp
+
+    timeout = aiohttp.ClientTimeout(total=30)
+    headers = {
+        "Accept": "text/plain, */*",
+        "User-Agent": "grok2api-token-bootstrap",
+    }
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with session.get(url, headers=headers) as response:
+            if response.status != 200:
+                raise RuntimeError(
+                    f"GROK_TOKEN_URL returned HTTP {response.status}"
+                )
+            raw = await response.text()
+    return _parse_token_lines(raw)
+
+
+async def _upsert_tokens(
+    repo: "AccountRepository",
+    tokens: list[str],
+    pool: str = "basic",
+) -> int:
+    """Upsert a list of cleaned token strings into the repo in batches."""
     if not tokens:
-        return
-
+        return 0
     from app.control.account.commands import AccountUpsert
 
     total = 0
     for i in range(0, len(tokens), _BATCH):
         batch = tokens[i : i + _BATCH]
-        upserts = [AccountUpsert(token=t, pool="basic") for t in batch]
+        upserts = [AccountUpsert(token=t, pool=pool) for t in batch]
         await repo.upsert_accounts(upserts)
         total += len(batch)
+    return total
 
-    logger.info("account: imported {} default tokens from default_tokens.txt", total)
+
+async def _import_default_tokens(repo: "AccountRepository") -> None:
+    """Import tokens on first boot from available sources.
+
+    Priority (first non-empty source wins):
+      1. ``app/default_tokens.txt``        — local dev (gitignored)
+      2. ``GROK_DEFAULT_TOKENS`` env var   — inline base64 or plain tokens
+      3. ``GROK_TOKEN_URL`` env var        — fetch from a URL (bypasses env var size limits)
+
+    Skips if the account repository already has data.  All errors from
+    URL fetching are logged but do NOT block startup.
+    """
+    snapshot = await repo.runtime_snapshot()
+    if snapshot.items:
+        return  # repo already has active accounts, skip
+
+    tokens = None
+    source = None
+
+    # Source 1: local file (existing behaviour).
+    tokens = await _read_tokens_from_file(_DEFAULT_TOKENS_PATH)
+    if tokens:
+        source = "default_tokens.txt"
+
+    # Source 2: inline env var.
+    if not tokens:
+        tokens = _read_tokens_from_env()
+        if tokens:
+            source = "GROK_DEFAULT_TOKENS"
+
+    # Source 3: URL fetch.
+    if not tokens:
+        token_url = os.getenv("GROK_TOKEN_URL", "").strip()
+        if token_url and token_url.startswith(("http://", "https://")):
+            try:
+                tokens = await _fetch_tokens_from_url(token_url)
+                if tokens:
+                    source = f"GROK_TOKEN_URL ({token_url})"
+            except Exception as exc:
+                logger.warning(
+                    "account: failed to fetch tokens from GROK_TOKEN_URL: url={} error={}",
+                    token_url,
+                    exc,
+                )
+
+    if not tokens:
+        return
+
+    total = await _upsert_tokens(repo, tokens, pool=_DEFAULT_TOKEN_POOL)
+    logger.info(
+        "account: imported {} tokens from {} (pool={})",
+        total,
+        source,
+        _DEFAULT_TOKEN_POOL,
+    )
 
 
 # ---------------------------------------------------------------------------

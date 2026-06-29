@@ -446,20 +446,12 @@ curl http://localhost:8000/v1/chat/completions \
 - 项目文档：[blog.cheny.me](https://blog.cheny.me/blog/posts/grok2api)
 - 社区：[Linux.do](https://linux.do)
 
----
-
 ## Star History
 
-<a href="https://github.com/Dithob">
-  <img src="https://avatars.githubusercontent.com/u/73398810?v=4" width="48" style="border-radius:50%" alt="Dithob" />
+<a href="https://www.star-history.com/?repos=Dithob%2Fgrok2api&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=Dithob/grok2api&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=Dithob/grok2api&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=Dithob/grok2api&type=date&legend=top-left" />
+ </picture>
 </a>
-
-[![Star History Chart](https://api.star-history.com/svg?repos=Dithob/grok2api&type=Date)](https://star-history.com/#Dithob/grok2api&Date)
-
----
-
-<div align="center">
-
-**MIT License**
-
-</div>

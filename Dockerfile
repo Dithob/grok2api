@@ -43,7 +43,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     TZ=Asia/Shanghai \
     VIRTUAL_ENV=/opt/venv \
     SERVER_HOST=0.0.0.0 \
-    SERVER_PORT=8000 \
+    SERVER_PORT=8001 \
     SERVER_WORKERS=1
 
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
@@ -68,7 +68,7 @@ COPY scripts ./scripts
 RUN mkdir -p /app/data /app/logs \
     && chmod +x /app/scripts/entrypoint.sh /app/scripts/init_storage.sh
 
-EXPOSE 8000
+EXPOSE 8001
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD ["sh", "-c", "wget -qO /dev/null http://127.0.0.1:${SERVER_PORT}/health || exit 1"]
